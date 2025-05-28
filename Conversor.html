@@ -37,49 +37,156 @@
   </div>
 
   <script>
-    function processarRelatorios() {
-      const fileUsuarios = document.getElementById('relatorioUsuarios').files[0];
-      const fileStatus = document.getElementById('relatorioStatus').files[0];
-      const msg = document.getElementById('mensagem');
+  async function processarRelatorios() {
+    const fileUsuarios = document.getElementById('relatorioUsuarios').files[0];
+    const fileStatus = document.getElementById('relatorioStatus').files[0];
+    const msg = document.getElementById('mensagem');
 
-      if (!fileUsuarios || !fileStatus) {
-        msg.textContent = "⚠️ Selecione os dois arquivos HTML antes de processar.";
+    if (!fileUsuarios || !fileStatus) {
+      msg.textContent = "⚠️ Selecione os dois arquivos HTML antes de processar.";
+      msg.classList.remove("text-green-600");
+      msg.classList.add("text-red-600");
+      return;
+    }
+
+    try {
+      const tabelaUsuarios = await lerTabelaHTMLParaJson(fileUsuarios);
+      const tabelaStatus = await lerTabelaHTMLParaJson(fileStatus);
+
+      const colNome = detectarColuna(tabelaUsuarios[0], ["Nome", "nome"]);
+      const colDisp = detectarColuna(tabelaUsuarios[0], ["Dispositivo", "dispositivo", "Device"]);
+      const colEmail = detectarColuna(tabelaUsuarios[0], ["Email", "E-mail", "email"]);
+
+      const colRazao = detectarColuna(tabelaStatus[0], ["Razão", "Razao", "Motivo"]);
+
+      if (!colNome || !colDisp || !colEmail || !colRazao) {
+        msg.textContent = "❌ Colunas obrigatórias não encontradas nos arquivos.";
         msg.classList.remove("text-green-600");
         msg.classList.add("text-red-600");
         return;
       }
 
-      lerTabelaHTML(fileUsuarios, "Relatório de usuário.xlsx");
-      lerTabelaHTML(fileStatus, "Relatório de status de proteção.xlsx");
+      const tabelaJoin = fazerJoin(
+        tabelaUsuarios, tabelaStatus,
+        colDisp,
+        { "Dispositivo": colDisp, "Nome": colNome, "Email": colEmail },
+        { "Razão": colRazao }
+      );
 
-      msg.textContent = "✅ Relatórios processados e baixados com sucesso!";
+      if (tabelaJoin.length === 0) {
+        msg.textContent = "❌ Nenhuma correspondência entre os dispositivos.";
+        msg.classList.remove("text-green-600");
+        msg.classList.add("text-red-600");
+        return;
+      }
+
+      salvarTabelaExcel(tabelaJoin, "Relatório_completo.xlsx");
+
+      msg.textContent = "✅ Relatório completo processado e baixado com sucesso!";
       msg.classList.remove("text-red-600");
       msg.classList.add("text-green-600");
-    }
 
-    function lerTabelaHTML(file, nomeArquivo) {
+    } catch (error) {
+      console.error(error);
+      msg.textContent = "❌ Erro ao processar os relatórios. Veja o console.";
+      msg.classList.remove("text-green-600");
+      msg.classList.add("text-red-600");
+    }
+  }
+
+  function lerTabelaHTMLParaJson(file) {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = function(e) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(e.target.result, "text/html");
         const table = doc.querySelector("table#Details");
-
         if (!table) {
-          alert(`Tabela com id="Details" não encontrada em ${file.name}`);
+          reject(`Tabela com id="Details" não encontrada em ${file.name}`);
           return;
         }
 
-        const ws = XLSX.utils.table_to_sheet(table);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Tabela_1");
+        const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
+        if (headers.length === 0) {
+          const firstRow = table.querySelector("tr");
+          if (!firstRow) {
+            reject(`Tabela vazia em ${file.name}`);
+            return;
+          }
+          const firstRowCells = Array.from(firstRow.querySelectorAll("td, th"));
+          for (let i = 0; i < firstRowCells.length; i++) {
+            headers.push(firstRowCells[i].textContent.trim() || `Coluna${i+1}`);
+          }
+        }
 
-        XLSX.writeFile(wb, nomeArquivo);
+        const rows = Array.from(table.querySelectorAll("tbody tr"));
+        const data = rows.map(tr => {
+          const cells = Array.from(tr.querySelectorAll("td"));
+          const obj = {};
+          for (let i = 0; i < headers.length; i++) {
+            obj[headers[i]] = cells[i] ? cells[i].textContent.trim() : "";
+          }
+          return obj;
+        });
+
+        resolve(data);
       };
+      reader.onerror = () => reject("Erro ao ler arquivo");
       reader.readAsText(file);
+    });
+  }
+
+  function detectarColuna(obj, opcoes) {
+    for (const opcao of opcoes) {
+      if (Object.keys(obj).includes(opcao)) return opcao;
     }
+    return null;
+  }
+
+  function fazerJoin(leftData, rightData, chave, keysLeftMap, keysRightMap) {
+    const mapaRight = {};
+    for (const item of rightData) {
+      mapaRight[item[chave]] = item;
+    }
+
+    const resultado = [];
+
+    for (const itemLeft of leftData) {
+      const itemRight = mapaRight[itemLeft[chave]];
+      if (itemRight) {
+        const objTemp = {};
+        for (const [dest, orig] of Object.entries(keysLeftMap)) {
+          objTemp[dest] = itemLeft[orig] || "";
+        }
+        for (const [dest, orig] of Object.entries(keysRightMap)) {
+          objTemp[dest] = itemRight[orig] || "";
+        }
+        resultado.push(objTemp);
+      }
+    }
+
+    const jsonUnico = [];
+    const setChaves = new Set();
+
+    for (const item of resultado) {
+      const chaveUnica = JSON.stringify(item);
+      if (!setChaves.has(chaveUnica)) {
+        setChaves.add(chaveUnica);
+        jsonUnico.push(item);
+      }
+    }
+
+    return jsonUnico;
+  }
+
+  function salvarTabelaExcel(data, nomeArquivo) {
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+    XLSX.writeFile(wb, nomeArquivo);
+  }
   </script>
 
-  <!-- Lucide icons sprite -->
   <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
     <symbol id="icon-download" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
