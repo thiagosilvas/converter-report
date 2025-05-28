@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Conversor de Relatórios HTML para Excel</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+  <div class="bg-white shadow-lg rounded-2xl p-8 max-w-lg w-full text-center">
+    <h1 class="text-3xl font-bold mb-6 text-gray-800 flex items-center justify-center gap-2">
+      <svg id="icon-codesandbox" class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-codesandbox"></use></svg>
+      Conversor de Relatórios
+    </h1>
+
+    <div class="space-y-4">
+      <div class="text-left">
+        <label class="font-medium text-gray-700">Relatório de Usuários:</label>
+        <input type="file" id="relatorioUsuarios" accept=".html" class="mt-1 block w-full text-sm border border-gray-300 rounded px-3 py-2"/>
+      </div>
+
+      <div class="text-left">
+        <label class="font-medium text-gray-700">Relatório de Status de Proteção:</label>
+        <input type="file" id="relatorioStatus" accept=".html" class="mt-1 block w-full text-sm border border-gray-300 rounded px-3 py-2"/>
+      </div>
+
+      <button onclick="processarRelatorios()"
+        class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2">
+        <svg id="icon-download" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2"><use href="#icon-download"></use></svg>
+        Processar Relatórios
+      </button>
+    </div>
+
+    <p id="mensagem" class="mt-6 text-sm text-gray-600"></p>
+  </div>
+
+  <script>
+    function processarRelatorios() {
+      const fileUsuarios = document.getElementById('relatorioUsuarios').files[0];
+      const fileStatus = document.getElementById('relatorioStatus').files[0];
+      const msg = document.getElementById('mensagem');
+
+      if (!fileUsuarios || !fileStatus) {
+        msg.textContent = "⚠️ Selecione os dois arquivos HTML antes de processar.";
+        msg.classList.remove("text-green-600");
+        msg.classList.add("text-red-600");
+        return;
+      }
+
+      lerTabelaHTML(fileUsuarios, "Relatório de usuário.xlsx");
+      lerTabelaHTML(fileStatus, "Relatório de status de proteção.xlsx");
+
+      msg.textContent = "✅ Relatórios processados e baixados com sucesso!";
+      msg.classList.remove("text-red-600");
+      msg.classList.add("text-green-600");
+    }
+
+    function lerTabelaHTML(file, nomeArquivo) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(e.target.result, "text/html");
+        const table = doc.querySelector("table#Details");
+
+        if (!table) {
+          alert(`Tabela com id="Details" não encontrada em ${file.name}`);
+          return;
+        }
+
+        const ws = XLSX.utils.table_to_sheet(table);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Tabela_1");
+
+        XLSX.writeFile(wb, nomeArquivo);
+      };
+      reader.readAsText(file);
+    }
+  </script>
+
+  <!-- Lucide icons sprite -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+    <symbol id="icon-download" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+    </symbol>
+    <symbol id="icon-codesandbox" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+        d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4a2 2 0 001-1.73z" />
+    </symbol>
+  </svg>
+
+</body>
+</html>
